@@ -303,6 +303,113 @@ class PaymentMethodFactory {
           let params = STPPaymentMethodRevolutPayParams()
           return STPPaymentMethodParams(revolutPay: params, billingDetails: billingDetailsParams, metadata: nil)
       }
+    
+    func createMandateData() -> STPMandateDataParams? {
+        if let mandateParams = paymentMethodData?["mandateData"] as? NSDictionary {
+            if let customerAcceptanceParams = mandateParams["customerAcceptance"] as? NSDictionary {
+                let mandate = STPMandateDataParams.init(customerAcceptance: STPMandateCustomerAcceptanceParams.init())
+                
+                mandate.customerAcceptance.type = .online
+                if let onlineParams = customerAcceptanceParams["online"] as? NSDictionary {
+                    mandate.customerAcceptance.onlineParams = .init(ipAddress: onlineParams["ipAddress"] as? String ?? "", userAgent: onlineParams["userAgent"] as? String ?? "")
+                }
+                return mandate
+            }
+        }
+        return nil
+    }
+    
+    func createOptions(paymentMethodType: STPPaymentMethodType) throws -> STPConfirmPaymentMethodOptions? {
+            do {
+                switch paymentMethodType {
+                case STPPaymentMethodType.iDEAL:
+                    return nil
+                case STPPaymentMethodType.EPS:
+                    return nil
+                case STPPaymentMethodType.card:
+                    return createCardPaymentMethodOptions()
+                case STPPaymentMethodType.FPX:
+                    return nil
+                case STPPaymentMethodType.sofort:
+                    return nil
+                case STPPaymentMethodType.alipay:
+                    return try createAlipayPaymentMethodOptions()
+                case STPPaymentMethodType.bancontact:
+                    return nil
+                case STPPaymentMethodType.SEPADebit:
+                    return nil
+                case STPPaymentMethodType.OXXO:
+                    return nil
+                case STPPaymentMethodType.giropay:
+                    return nil
+                case STPPaymentMethodType.grabPay:
+                    return nil
+                case STPPaymentMethodType.przelewy24:
+                    return nil
+                case STPPaymentMethodType.AUBECSDebit:
+                    return nil
+                case STPPaymentMethodType.afterpayClearpay:
+                    return nil
+                case STPPaymentMethodType.klarna:
+                    return nil
+                case STPPaymentMethodType.weChatPay:
+                    return try createWeChatPayPaymentMethodOptions()
+                case STPPaymentMethodType.USBankAccount:
+                    return try createUSBankAccountPaymentMethodOptions()
+                case STPPaymentMethodType.payPal:
+                    return nil
+                case STPPaymentMethodType.affirm:
+                    return nil
+                case STPPaymentMethodType.cashApp:
+                    return nil
+                case STPPaymentMethodType.revolutPay:
+                    return nil
+                default:
+                    throw PaymentMethodError.paymentNotSupported
+                }
+            } catch {
+                throw error
+            }
+        }
+    
+    private func createCardPaymentMethodOptions() -> STPConfirmPaymentMethodOptions? {
+            let cvc = paymentMethodData?["cvc"] as? String
+            guard cvc != nil else {
+                return nil
+            }
+
+            let cardOptions = STPConfirmCardOptions()
+            cardOptions.cvc = cvc;
+            let paymentMethodOptions = STPConfirmPaymentMethodOptions()
+            paymentMethodOptions.cardOptions = cardOptions
+
+            return paymentMethodOptions
+        }
+    
+    private func createAlipayPaymentMethodOptions() throws -> STPConfirmPaymentMethodOptions {
+           let options = STPConfirmPaymentMethodOptions()
+           options.alipayOptions = STPConfirmAlipayOptions()
+           return options
+       }
+    
+    private func createWeChatPayPaymentMethodOptions() throws -> STPConfirmPaymentMethodOptions {
+           guard let appId = self.paymentMethodData?["appId"] as? String else {
+               throw PaymentMethodError.weChatPayPaymentMissingParams
+           }
+           let paymentOptions = STPConfirmPaymentMethodOptions()
+           paymentOptions.weChatPayOptions = STPConfirmWeChatPayOptions(appId: appId)
+
+           return paymentOptions
+       }
+    
+    private func createUSBankAccountPaymentMethodOptions() throws -> STPConfirmPaymentMethodOptions {
+          let paymentOptions = STPConfirmPaymentMethodOptions()
+          if let usage = self.paymentMethodOptions?["setupFutureUsage"] as? String {
+              paymentOptions.usBankAccountOptions = STPConfirmUSBankAccountOptions(setupFutureUsage: Mappers.mapToPaymentIntentFutureUsage(usage: usage))
+          }
+
+          return paymentOptions
+      }
 
     
 }

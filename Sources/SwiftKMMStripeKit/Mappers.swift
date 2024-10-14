@@ -14,6 +14,10 @@ import UIKit
 
 class Mappers {
     
+    class func createResult(_ key: String, _ value: NSDictionary?) -> NSDictionary {
+            return [key: value ?? NSNull()]
+        }
+    
     class func mapToBillingDetails(billingDetails: NSDictionary?) -> STPPaymentMethodBillingDetails? {
         guard let billingDetails = billingDetails else {
             return nil
@@ -296,6 +300,105 @@ class Mappers {
             return nil
         }
     
+    class func mapFromPaymentIntent(paymentIntent: STPPaymentIntent) -> [String: Any] {
+        var intent: [String: Any] = [
+            "id": paymentIntent.stripeId,
+            "currency": paymentIntent.currency,
+            "status": Mappers.mapIntentStatus(status: paymentIntent.status),
+            "description": paymentIntent.description as Any,
+            "clientSecret": paymentIntent.clientSecret,
+            "receiptEmail": paymentIntent.receiptEmail ?? NSNull(),
+            "livemode": paymentIntent.livemode,
+            "paymentMethodId": paymentIntent.paymentMethodId ?? NSNull(),
+            "paymentMethod": mapFromPaymentMethod(paymentIntent.paymentMethod) ?? NSNull(),
+            "captureMethod": mapCaptureMethod(paymentIntent.captureMethod),
+            "confirmationMethod": mapConfirmationMethod(paymentIntent.confirmationMethod),
+            "created": convertDateToUnixTimestampMilliseconds(date: paymentIntent.created) ?? NSNull(),
+            "amount": paymentIntent.amount,
+            "lastPaymentError": NSNull(),
+            "shipping": NSNull(),
+            "canceledAt": NSNull(),
+            "nextAction": mapNextAction(nextAction: paymentIntent.nextAction) ?? NSNull(),
+        ]
+
+        if let lastPaymentError = paymentIntent.lastPaymentError {
+            let paymentError: [String: Any] = [
+                "code": lastPaymentError.code ?? NSNull(),
+                "message": lastPaymentError.message ?? NSNull(),
+                "type": mapFromPaymentIntentLastPaymentErrorType(lastPaymentError.type) ?? NSNull(),
+                "declineCode": lastPaymentError.declineCode ?? NSNull(),
+                "paymentMethod": mapFromPaymentMethod(lastPaymentError.paymentMethod) ?? NSNull()
+            ]
+
+            intent["lastPaymentError"] = paymentError
+        }
+
+        if let shipping = paymentIntent.shipping {
+            intent["shipping"] = mapIntentShipping(shipping)
+        }
+
+        if let canceledAt = paymentIntent.canceledAt {
+            intent["canceledAt"] = convertDateToUnixTimestampMilliseconds(date: canceledAt)
+        }
+
+        return intent
+    }
+    
+    
+    
+    
+    class func mapCaptureMethod(_ captureMethod: STPPaymentIntentCaptureMethod?) -> String {
+          if let captureMethod = captureMethod {
+              switch captureMethod {
+              case STPPaymentIntentCaptureMethod.automatic: return "Automatic"
+              case STPPaymentIntentCaptureMethod.manual: return "Manual"
+              default: return "Unknown"
+              }
+          }
+          return "Unknown"
+      }
+    
+    
+    class func mapIntentShipping(_ shipping: STPPaymentIntentShippingDetails) -> [String: Any] {
+        var addressDetails: [String: Any] = [:]
+        
+        if let address = shipping.address {
+            addressDetails = [
+                "city": address.city ?? NSNull(),
+                "state": address.state ?? NSNull(),
+                "country": address.country ?? NSNull(),
+                "line1": address.line1 ?? NSNull(),
+                "line2": address.line2 ?? NSNull(),
+                "postalCode": address.postalCode ?? NSNull(),
+            ]
+        }
+        
+        let shippingDetails: [String: Any] = [
+            "address": addressDetails,
+            "name": shipping.name ?? NSNull(),
+            "phone": shipping.phone ?? NSNull(),
+            "trackingNumber": shipping.trackingNumber ?? NSNull(),
+            "carrier": shipping.carrier ?? NSNull(),
+        ]
+        
+        return shippingDetails
+    }
+
+    
+    
+    class func mapConfirmationMethod(_ confirmationMethod: STPPaymentIntentConfirmationMethod?) -> String {
+           if let confirmationMethod = confirmationMethod {
+               switch confirmationMethod {
+               case STPPaymentIntentConfirmationMethod.automatic: return "Automatic"
+               case STPPaymentIntentConfirmationMethod.manual: return "Manual"
+               default: return "Unknown"
+               }
+           }
+           return "Unknown"
+       }
+
+    
+    
     class func mapPaymentMethodType(type: STPPaymentMethodType) -> String {
             switch type {
             case STPPaymentMethodType.card: return "Card"
@@ -557,7 +660,188 @@ class Mappers {
           }
       }
     
+    class func mapToReturnURL(urlScheme: String) -> String {
+           return urlScheme + "://safepay"
+       }
     
+    
+    
+    class func mapFromSetupIntent(setupIntent: STPSetupIntent) -> NSDictionary {
+           let intent: NSMutableDictionary = [
+               "id": setupIntent.stripeID,
+               "clientSecret": setupIntent.clientSecret,
+               "status": mapIntentStatus(status: setupIntent.status),
+               "description": setupIntent.stripeDescription ?? NSNull(),
+               "livemode": setupIntent.livemode,
+               "paymentMethodTypes": NSArray(),
+               "usage": mapFromSetupIntentUsage(usage: setupIntent.usage),
+               "paymentMethodId": setupIntent.paymentMethodID ?? NSNull(),
+               "paymentMethod": mapFromPaymentMethod(setupIntent.paymentMethod) ?? NSNull(),
+               "created": NSNull(),
+               "lastSetupError": NSNull(),
+               "nextAction": mapNextAction(nextAction: setupIntent.nextAction) ?? NSNull(),
+           ]
+
+
+           let types = setupIntent.paymentMethodTypes.map {
+               mapPaymentMethodType(type: STPPaymentMethodType.init(rawValue: Int(truncating: $0))!)
+           }
+
+           intent.setValue(types, forKey: "paymentMethodTypes")
+           intent.setValue(convertDateToUnixTimestampMilliseconds(date: setupIntent.created), forKey: "created")
+
+           if let lastSetupError = setupIntent.lastSetupError {
+               let setupError: NSMutableDictionary = [
+                   "code": lastSetupError.code ?? NSNull(),
+                   "message": lastSetupError.message ?? NSNull(),
+                   "type": mapFromSetupIntentLastPaymentErrorType(lastSetupError.type) ?? NSNull(),
+                   "declineCode": lastSetupError.declineCode ?? NSNull(),
+                   "paymentMethod": mapFromPaymentMethod(lastSetupError.paymentMethod) ?? NSNull()
+               ]
+               intent.setValue(setupError, forKey: "lastSetupError")
+           }
+
+           return intent
+       }
+    
+    class func mapIntentStatus(status: STPPaymentIntentStatus?) -> String {
+         if let status = status {
+             switch status {
+             case STPPaymentIntentStatus.succeeded: return "Succeeded"
+             case STPPaymentIntentStatus.requiresPaymentMethod: return "RequiresPaymentMethod"
+             case STPPaymentIntentStatus.requiresConfirmation: return "RequiresConfirmation"
+             case STPPaymentIntentStatus.canceled: return "Canceled"
+             case STPPaymentIntentStatus.processing: return "Processing"
+             case STPPaymentIntentStatus.requiresAction: return "RequiresAction"
+             case STPPaymentIntentStatus.requiresCapture: return "RequiresCapture"
+             default: return "Unknown"
+             }
+         }
+         return "Unknown"
+     }
+    
+    class func mapIntentStatus(status: STPSetupIntentStatus?) -> String {
+         if let status = status {
+             switch status {
+             case STPSetupIntentStatus.succeeded: return "Succeeded"
+             case STPSetupIntentStatus.requiresPaymentMethod: return "RequiresPaymentMethod"
+             case STPSetupIntentStatus.requiresConfirmation: return "RequiresConfirmation"
+             case STPSetupIntentStatus.canceled: return "Canceled"
+             case STPSetupIntentStatus.processing: return "Processing"
+             case STPSetupIntentStatus.requiresAction: return "RequiresAction"
+             case STPSetupIntentStatus.unknown: return "Unknown"
+             default: return "Unknown"
+             }
+         }
+         return "Unknown"
+     }
+    
+    
+    class func mapFromSetupIntentUsage(usage: STPSetupIntentUsage?) -> String {
+        if let usage = usage {
+            switch usage {
+            case STPSetupIntentUsage.none: return "None"
+            case STPSetupIntentUsage.offSession: return "OffSession"
+            case STPSetupIntentUsage.onSession: return "OnSession"
+            case STPSetupIntentUsage.unknown: return "Unknown"
+            default: return "Unknown"
+            }
+        }
+        return "Unknown"
+    }
+    
+    class func mapNextAction(nextAction: STPIntentAction?) -> NSDictionary? {
+            if let it = nextAction {
+                switch it.type {
+                case .verifyWithMicrodeposits:
+                    return [
+                        "type": "verifyWithMicrodeposits",
+                        "redirectUrl": it.verifyWithMicrodeposits?.hostedVerificationURL.absoluteString ?? NSNull(),
+                        "microdepositType": it.verifyWithMicrodeposits?.microdepositType.description ?? NSNull(),
+                        "arrivalDate": it.verifyWithMicrodeposits?.arrivalDate.timeIntervalSince1970.description ?? NSNull(),
+                    ]
+                case .redirectToURL:
+                    return [
+                        "type": "urlRedirect",
+                        "redirectUrl": it.redirectToURL?.url.absoluteString ?? NSNull()
+                    ]
+                case .weChatPayRedirectToApp:
+                    return [
+                        "type": "weChatRedirect",
+                        "redirectUrl": it.weChatPayRedirectToApp?.nativeURL?.absoluteString ?? NSNull()
+                    ]
+                case .alipayHandleRedirect:
+                    return [
+                        "type": "alipayRedirect",
+                        "redirectUrl": it.alipayHandleRedirect?.url.absoluteString ?? NSNull(),
+                        "nativeRedirectUrl": it.alipayHandleRedirect?.nativeURL?.absoluteString ?? NSNull(),
+                    ]
+                case .OXXODisplayDetails:
+                    return [
+                        "type": "oxxoVoucher",
+                        "expiration": it.oxxoDisplayDetails?.expiresAfter.timeIntervalSince1970 ?? NSNull(),
+                        "voucherURL": it.oxxoDisplayDetails?.hostedVoucherURL.absoluteString ?? NSNull(),
+                        "voucherNumber": it.oxxoDisplayDetails?.number ?? NSNull(),
+                    ]
+                case .boletoDisplayDetails:
+                    return [
+                        "type": "boletoVoucher",
+                        "voucherURL": it.boletoDisplayDetails?.hostedVoucherURL.absoluteString ?? NSNull(),
+                    ]
+                case .konbiniDisplayDetails:
+                    return [
+                        "type": "konbiniVoucher",
+                        "voucherURL": it.konbiniDisplayDetails?.hostedVoucherURL.absoluteString ?? NSNull(),
+                    ]
+                default: // .useStripeSDK, .BLIKAuthorize, .unknown
+                    return nil
+                }
+            } else {
+                return nil
+            }
+        }
+    
+    class func convertDateToUnixTimestampMilliseconds(date: Date?) -> String? {
+           if let date = date {
+               let value = date.timeIntervalSince1970 * 1000.0
+               return String(format: "%.0f", value)
+           }
+           return nil
+       }
+    
+    class func mapToPaymentIntentFutureUsage(usage: String?) -> STPPaymentIntentSetupFutureUsage {
+            if let usage = usage {
+                switch usage {
+                case "None": return STPPaymentIntentSetupFutureUsage.none
+                case "OffSession": return STPPaymentIntentSetupFutureUsage.offSession
+                case "OnSession": return STPPaymentIntentSetupFutureUsage.onSession
+                case "Unknown": return STPPaymentIntentSetupFutureUsage.unknown
+                default: return STPPaymentIntentSetupFutureUsage.unknown
+                }
+            }
+            return STPPaymentIntentSetupFutureUsage.unknown
+        }
+    
+    class func mapToShippingDetails(shippingDetails: NSDictionary?) -> STPPaymentIntentShippingDetailsParams? {
+           guard let shippingDetails = shippingDetails else {
+               return nil
+           }
+
+           let shippingAddress = STPPaymentIntentShippingDetailsAddressParams(line1: "")
+
+           if let addressMap = shippingDetails["address"] as? NSDictionary {
+               shippingAddress.city = addressMap["city"] as? String
+               shippingAddress.postalCode = addressMap["postalCode"] as? String
+               shippingAddress.country = addressMap["country"] as? String
+               shippingAddress.line1 = addressMap["line1"] as? String ?? ""
+               shippingAddress.line2 = addressMap["line2"] as? String
+               shippingAddress.state = addressMap["state"] as? String
+           }
+
+           let shipping = STPPaymentIntentShippingDetailsParams(address: shippingAddress, name: shippingDetails["name"] as? String ?? "")
+
+           return shipping
+       }
     
     
 }

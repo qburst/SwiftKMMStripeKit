@@ -59,6 +59,20 @@ class Errors {
         return ["error": value]
     }
     
+    class func createCustomError(code: String, message: String? = nil) -> [String: Any] {
+            let value: [String: Any] = [
+                "code": code,
+                "message": message ?? NSNull(),
+                "localizedMessage": message ?? NSNull(),
+                "declineCode": NSNull(),
+                "stripeErrorCode": NSNull(),
+                "type": NSNull()
+            ]
+            
+            return ["error": value]
+        }
+    
+    
     class func createError (_ code: String, _ error: NSError?) -> NSDictionary {
         let rootError = getRootError(error)
 
