@@ -71,8 +71,8 @@ class PaymentMethodFactory {
                        return try createCashAppPaymentMethodParams()
                    case STPPaymentMethodType.revolutPay:
                        return try createRevolutPayPaymentMethodParams()
-                  case STPPaymentMethodType.weChatPay:
-                      return try createWeChatPayPaymentMethodParams()
+//                  case STPPaymentMethodType.weChatPay:
+//                      return try createWeChatPayPaymentMethodParams()
                    default:
                        throw PaymentMethodError.paymentNotSupported
             }
@@ -114,9 +114,9 @@ class PaymentMethodFactory {
         return STPPaymentMethodParams(alipay: STPPaymentMethodAlipayParams(), billingDetails: billingDetailsParams, metadata: nil)
     }
     
-    private func createWeChatPayPaymentMethodParams() throws -> STPPaymentMethodParams {
-        return STPPaymentMethodParams(weChatPay: STPPaymentMethodWeChatPayParams(), billingDetails: billingDetailsParams, metadata: nil)
-    }
+//    private func createWeChatPayPaymentMethodParams() throws -> STPPaymentMethodParams {
+//        return STPPaymentMethodParams(weChatPay: STPPaymentMethodWeChatPayParams(), billingDetails: billingDetailsParams, metadata: nil)
+//    }
     
     private func createGiropayPaymentMethodParams() throws -> STPPaymentMethodParams {
         let params = STPPaymentMethodGiropayParams()

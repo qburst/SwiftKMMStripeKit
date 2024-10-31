@@ -11,6 +11,7 @@
 import Foundation
 import Stripe
 import StripePaymentSheet
+import Foundation
 import UIKit
 import ComposeApp
 
@@ -447,6 +448,24 @@ public class StripeSdk : NSObject, SharedStripeRepository, STPBankSelectionViewC
             (Errors.createError(ErrorType.Unknown, "Cannot complete the payment"))
         }
     }
+    
+    // payment sheet implimentation
+    
+    public func initPaymentSheet(params: [String: Any]?,
+                          onSuccess: @escaping ([String: Any]) -> Void,
+                          onError: @escaping (Error) -> Void
+    
+    ) {
+//        let (error, configuration) = buildPaymentSheetConfiguration(params: params)
+        
+//        guard let configuration = configuration else {
+////            resolve(error)
+//            return
+//        }
+        
+//        preparePaymentSheetInstance(params: params, configuration: configuration, resolve: resolve)
+    }
+    
 
 }
 
