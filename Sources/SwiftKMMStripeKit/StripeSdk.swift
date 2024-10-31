@@ -146,6 +146,46 @@ public class StripeSdk : NSObject, SharedStripeRepository, STPBankSelectionViewC
         }
     }
     
+    public func handleNextActionForSetup(
+        setupIntentClientSecret: String,
+        returnURL: String?,
+        onSuccess: @escaping ([String: Any]) -> Void,
+        onError: @escaping (KotlinThrowable) -> Void
+    ) throws {
+        let paymentHandler = STPPaymentHandler.shared()
+        
+        paymentHandler.handleNextAction(forSetupIntent: setupIntentClientSecret, with: self, returnURL: returnURL) { status, setupIntent, handleActionError in
+            switch status {
+            case .failed:
+                if let error = handleActionError {
+                    onError(KotlinThrowable(message: Errors.createError(ErrorType.Failed, "Failed: \(error.localizedDescription)").description))
+                } else {
+                    onError(KotlinThrowable(message: Errors.createError(ErrorType.Failed, "Failed: Unknown failure").description))
+                }
+                
+            case .canceled:
+                if let lastError = setupIntent?.lastSetupError {
+                    onError(KotlinThrowable(message: Errors.createError(ErrorType.Canceled, "Canceled: \(lastError.description)").description))
+                } else {
+                    onError(KotlinThrowable(message: Errors.createError(ErrorType.Canceled, "Canceled: The setup has been canceled").description))
+                }
+                
+            case .succeeded:
+                if let setupIntent = setupIntent {
+                    let result = Mappers.createResult("setupIntent", Mappers.mapFromSetupIntent(setupIntent: setupIntent) as NSDictionary)
+                    onSuccess(result as! [String: Any])
+                } else {
+                    onError(KotlinThrowable(message: Errors.createError(ErrorType.Failed, "Success: Unknown success").description))
+                }
+                
+            @unknown default:
+                onError(KotlinThrowable(message: Errors.createError(ErrorType.Failed, "Unknown: Cannot complete setup").description))
+            }
+        }
+    }
+
+    
+    
     
     func getTopMostViewController() -> UIViewController? {
         guard let keyWindow = UIApplication.shared.connectedScenes
