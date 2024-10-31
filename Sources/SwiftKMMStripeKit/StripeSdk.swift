@@ -496,7 +496,9 @@ public class StripeSdk : NSObject, SharedStripeRepository, STPBankSelectionViewC
                           onError: @escaping (Error) -> Void
     
     ) {
-//        let (error, configuration) = buildPaymentSheetConfiguration(params: params)
+
+        
+        let (error, configuration) = buildPaymentSheetConfiguration(params: params)
         
 //        guard let configuration = configuration else {
 ////            resolve(error)
@@ -549,3 +551,5 @@ extension StripeSdk: STPAuthenticationContext {
         return topController
     }
 }
+
+
