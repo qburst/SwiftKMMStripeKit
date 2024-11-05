@@ -14,13 +14,24 @@ import StripePaymentSheet
 import Foundation
 import UIKit
 import ComposeApp
+import PassKit
 
 
 public class StripeSdk : NSObject, SharedStripeRepository, STPBankSelectionViewControllerDelegate, UIAdaptivePresentationControllerDelegate {
+  
+    
+   
+   
+    
+    var paymentSheetIntentCreationCallback: ((Result<String, Error>) -> Void)?
+    var paymentSheetFlowController: PaymentSheet.FlowController?
+    var applePaymentMethodFlowCanBeCanceled = false
+    var platformPayUsesDeprecatedTokenFlow = false
+    var createPlatformPayPaymentMethodResolver: (Any)? = nil
    
     var cardFieldView: CardFieldView? = nil
     var cardFormView: CardFormView? = nil
-    private var paymentSheet: PaymentSheet?
+    public var paymentSheet: PaymentSheet?
     private var paymentSheetClientSecret: String?
     var confirmPaymentClientSecret: String? = nil
     
@@ -28,11 +39,19 @@ public class StripeSdk : NSObject, SharedStripeRepository, STPBankSelectionViewC
     
     var urlScheme: String? = nil
     var merchantIdentifier: String? = nil
-    
+    var orderTrackingHandler: (result: PKPaymentAuthorizationResult, handler: ((PKPaymentAuthorizationResult) -> Void))? = nil
     
     public override init() {}
     
-    
+    var hasEventListeners = false
+        func startObserving() {
+           hasEventListeners = true
+       }
+        func stopObserving() {
+           hasEventListeners = false
+       }
+       
+
     public func initialise(params: [String : Any]) throws {
         
         let publishableKey = params["publishableKey"] as! String
@@ -491,25 +510,108 @@ public class StripeSdk : NSObject, SharedStripeRepository, STPBankSelectionViewC
     
     // payment sheet implimentation
     
-    public func initPaymentSheet(params: [String: Any]?,
-                          onSuccess: @escaping ([String: Any]) -> Void,
-                          onError: @escaping (Error) -> Void
-    
-    ) {
-
+    public func doInitPaymentSheet(params: [String : Any], onSuccess: @escaping ([String : Any]) -> Void, onError: @escaping (KotlinThrowable) -> Void) throws {
         
-        let (error, configuration) = buildPaymentSheetConfiguration(params: params)
+        let (error, configuration) = buildPaymentSheetConfiguration(params: params as! NSDictionary)
+        guard let configuration = configuration else {
+            onError(Errors.createError(ErrorType.Canceled, error?.description) as! any Error as! KotlinThrowable)
+            return
+        }
         
-//        guard let configuration = configuration else {
-////            resolve(error)
-//            return
-//        }
-        
-//        preparePaymentSheetInstance(params: params, configuration: configuration, resolve: resolve)
+        preparePaymentSheetInstance(params: params as! NSDictionary, configuration: configuration, resolve: onSuccess)
     }
     
+    
 
+    public func presentPaymentSheet(
+        options: [String: Any] = [:],
+        onSuccess: @escaping ([String: Any]) -> Void,
+        onError: @escaping (KotlinThrowable) -> Void
+    ) throws {
+        var paymentSheetViewController: UIViewController?
+
+        // Timeout handling
+        if let timeout = options["timeout"] as? Double {
+            DispatchQueue.main.asyncAfter(deadline: .now() + timeout / 1000) {
+                if let paymentSheetViewController = paymentSheetViewController {
+                    paymentSheetViewController.dismiss(animated: true)
+                    onError(Errors.createError(ErrorType.Timeout, "The payment has timed out.") as! any Error as! KotlinThrowable)
+                }
+            }
+        }
+
+        DispatchQueue.main.async {
+            // Get the top-most view controller
+            paymentSheetViewController = self.topViewController()
+
+            // Ensure paymentSheetViewController is valid
+            guard let presentingViewController = paymentSheetViewController else {
+        
+                onError(KotlinThrowable(message:  Errors.createError(ErrorType.Failed, "Failed to find a valid presenting view controller.").description))
+                
+                return
+            }
+
+            // Present the payment options or payment sheet
+            if let paymentSheetFlowController = self.paymentSheetFlowController {
+                paymentSheetFlowController.presentPaymentOptions(from: findViewControllerPresenter(from: presentingViewController)) {
+                    paymentSheetViewController = nil
+                    if let paymentOption = self.paymentSheetFlowController?.paymentOption {
+                        let option: NSDictionary = [
+                            "label": paymentOption.label,
+                            "image": paymentOption.image.pngData()?.base64EncodedString() ?? ""
+                        ]
+                        onSuccess(Mappers.createResult("paymentOption", option) as! [String: Any])
+                    } else {
+                        onError(Errors.createError(ErrorType.Canceled, "The payment option selection flow has been canceled.") as! any Error as! KotlinThrowable)
+                    }
+                }
+            } else if let paymentSheet = self.paymentSheet {
+                paymentSheet.present(from: findViewControllerPresenter(from: presentingViewController)) { paymentResult in
+                    paymentSheetViewController = nil
+                    switch paymentResult {
+                    case .completed:
+                        onSuccess([:])
+                        self.paymentSheet = nil
+                    case .canceled:
+                        onError(KotlinThrowable(message:  Errors.createError(ErrorType.Canceled, "The payment has been canceled.").description))
+                   
+                    case .failed(let error):
+                        onError(KotlinThrowable(message:  Errors.createError(ErrorType.Failed, error).description))
+                       
+                    }
+                }
+            } else {
+                onError(KotlinThrowable(message:  Errors.createError(ErrorType.Canceled,  "No payment sheet has been initialized yet. You must call `initPaymentSheet` before `presentPaymentSheet`.").description))
+            }
+        }
+    }
+    
+    func topViewController() -> UIViewController? {
+        var topController = UIApplication.shared.keyWindow?.rootViewController
+        while let presentedViewController = topController?.presentedViewController {
+            topController = presentedViewController
+        }
+        return topController
+    }
 }
+
+
+func findViewControllerPresenter(from uiViewController: UIViewController) -> UIViewController {
+    // Note: creating a UIViewController inside here results in a nil window
+    // This is a bit of a hack: We traverse the view hierarchy looking for the most reasonable VC to present from.
+    // A VC hosted within a SwiftUI cell, for example, doesn't have a parent, so we need to find the UIWindow.
+    var presentingViewController: UIViewController =
+        uiViewController.view.window?.rootViewController ?? uiViewController
+
+    // Find the most-presented UIViewController
+    while let presented = presentingViewController.presentedViewController {
+        presentingViewController = presented
+    }
+
+    return presentingViewController
+}
+
 
 
 extension StripeSdk: STPAuthenticationContext {
@@ -551,5 +653,4 @@ extension StripeSdk: STPAuthenticationContext {
         return topController
     }
 }
-
 

@@ -11,12 +11,132 @@ import Foundation
 import Stripe
 //import StripePaymentSheet
 import UIKit
+import PassKit
+import StripePaymentSheet
 
 class Mappers {
+    
+
     
     class func createResult(_ key: String, _ value: NSDictionary?) -> NSDictionary {
             return [key: value ?? NSNull()]
         }
+    
+    
+    class func mapFromTokenType(_ type: STPTokenType?) -> String? {
+          if let type = type {
+              switch type {
+              case STPTokenType.PII: return "Pii"
+              case STPTokenType.account: return "Account"
+              case STPTokenType.bankAccount: return "BankAccount"
+              case STPTokenType.card: return "Card"
+              case STPTokenType.cvcUpdate: return "CvcUpdate"
+              default: return nil
+              }
+          }
+          return nil
+      }
+    
+    
+    class func mapFromToken(token: STPToken) -> NSDictionary {
+        let tokenMap: NSDictionary = [
+            "id": token.tokenId,
+            "bankAccount": mapFromBankAccount(token.bankAccount) ?? NSNull(),
+            "created": convertDateToUnixTimestampMilliseconds(date: token.created) ?? NSNull(),
+            "card": mapFromCard(token.card) ?? NSNull(),
+            "livemode": token.livemode,
+            "type": mapFromTokenType(token.type) ?? NSNull(),
+        ]
+
+        return tokenMap
+    }
+    
+    class func mapFromBankAccount(_ bankAccount: STPBankAccount?) -> NSDictionary? {
+        guard let bankAccount = bankAccount else {
+            return nil
+        }
+
+        let result: NSDictionary = [
+            "id": bankAccount.stripeID,
+            "bankName": bankAccount.bankName ?? NSNull(),
+            "accountHolderName": bankAccount.accountHolderName ?? NSNull(),
+            "accountHolderType": mapFromBankAccountHolderType(bankAccount.accountHolderType) ?? NSNull(),
+            "country": bankAccount.country ?? NSNull(),
+            "currency": bankAccount.currency ?? NSNull(),
+            "routingNumber": bankAccount.routingNumber ?? NSNull(),
+            "status": mapFromBankAccountStatus(bankAccount.status) ?? NSNull(),
+            "fingerprint": bankAccount.fingerprint ?? NSNull(),
+            "last4": bankAccount.last4 ?? NSNull()
+        ]
+        return result
+    }
+    
+    class func mapFromBankAccountStatus(_ status: STPBankAccountStatus?) -> String? {
+         if let status = status {
+             switch status {
+             case STPBankAccountStatus.errored: return "Errored"
+             case STPBankAccountStatus.new: return "New"
+             case STPBankAccountStatus.validated: return "Validated"
+             case STPBankAccountStatus.verified: return "Verified"
+             case STPBankAccountStatus.verificationFailed: return "VerificationFailed"
+             default: return nil
+             }
+         }
+         return nil
+     }
+    
+    
+    class func mapFromBankAccountHolderType(_ type: STPBankAccountHolderType?) -> String? {
+           if let type = type {
+               switch type {
+               case STPBankAccountHolderType.company: return "Company"
+               case STPBankAccountHolderType.individual: return "Individual"
+               default: return nil
+               }
+           }
+           return nil
+       }
+    
+    class func mapFromShippingContact(shippingContact: PKContact) -> NSDictionary {
+          let name: NSDictionary = [
+              "familyName": shippingContact.name?.familyName ?? "",
+              "namePrefix": shippingContact.name?.namePrefix ?? "",
+              "nameSuffix": shippingContact.name?.nameSuffix ?? "",
+              "givenName": shippingContact.name?.givenName ?? "",
+              "middleName": shippingContact.name?.middleName ?? "",
+              "nickname": shippingContact.name?.nickname ?? "",
+          ]
+          let contact: NSDictionary = [
+              "emailAddress": shippingContact.emailAddress ?? "",
+              "phoneNumber": shippingContact.phoneNumber?.stringValue ?? "",
+              "name": name,
+              "postalAddress": [
+                  "city": shippingContact.postalAddress?.city,
+                  "country": shippingContact.postalAddress?.country,
+                  "postalCode": shippingContact.postalAddress?.postalCode,
+                  "state": shippingContact.postalAddress?.state,
+                  "street": shippingContact.postalAddress?.street,
+                  "isoCountryCode": shippingContact.postalAddress?.isoCountryCode,
+                  "subAdministrativeArea": shippingContact.postalAddress?.subAdministrativeArea,
+                  "subLocality": shippingContact.postalAddress?.subLocality,
+              ],
+          ]
+
+          return contact
+      }
+    
+    
+    class func mapToPKContactField(field: String) -> PKContactField {
+        switch field {
+        case "emailAddress": return PKContactField.emailAddress
+        case "name": return PKContactField.name
+        case "phoneNumber": return PKContactField.phoneNumber
+        case "phoneticName": return PKContactField.phoneticName
+        case "postalAddress": return PKContactField.postalAddress
+        default: return PKContactField.name
+        }
+    }
+    
     
     class func mapToBillingDetails(billingDetails: NSDictionary?) -> STPPaymentMethodBillingDetails? {
         guard let billingDetails = billingDetails else {
@@ -843,5 +963,13 @@ class Mappers {
            return shipping
        }
     
+    @available(iOS 13.0, *)
+       class func mapToUserInterfaceStyle(_ style: String?) -> PaymentSheet.UserInterfaceStyle {
+           switch style {
+           case "alwaysDark": return PaymentSheet.UserInterfaceStyle.alwaysDark
+           case "alwaysLight": return PaymentSheet.UserInterfaceStyle.alwaysLight
+           default: return PaymentSheet.UserInterfaceStyle.automatic
+           }
+       }
     
 }
