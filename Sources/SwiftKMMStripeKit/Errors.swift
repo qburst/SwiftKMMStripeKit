@@ -59,6 +59,15 @@ class Errors {
         return ["error": value]
     }
     
+    class func handleError(_ type: String, _ message: String, _ onError: @escaping ([String: Any]) -> Void) {
+          if let errorDict = Errors.createError(type, message) as? [String: Any] {
+              onError(errorDict)
+          } else {
+              print("⚠️ Error conversion failed: \(message)")
+              onError(["error": "Unexpected error format"])
+          }
+      }
+
     class func createCustomError(code: String, message: String? = nil) -> [String: Any] {
             let value: [String: Any] = [
                 "code": code,
