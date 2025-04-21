@@ -13,22 +13,17 @@ import Stripe
 import StripePaymentSheet
 import Foundation
 import UIKit
-import ComposeApp
 import PassKit
 
 
-public class StripeSdk : NSObject, SharedStripeRepository, STPBankSelectionViewControllerDelegate, UIAdaptivePresentationControllerDelegate {
-  
-    
-   
-   
+public class StripeSdk: NSObject,STPBankSelectionViewControllerDelegate, UIAdaptivePresentationControllerDelegate {
     
     var paymentSheetIntentCreationCallback: ((Result<String, Error>) -> Void)?
     var paymentSheetFlowController: PaymentSheet.FlowController?
     var applePaymentMethodFlowCanBeCanceled = false
     var platformPayUsesDeprecatedTokenFlow = false
     var createPlatformPayPaymentMethodResolver: (Any)? = nil
-   
+    
     var cardFieldView: CardFieldView? = nil
     var cardFormView: CardFormView? = nil
     public var paymentSheet: PaymentSheet?
@@ -44,15 +39,15 @@ public class StripeSdk : NSObject, SharedStripeRepository, STPBankSelectionViewC
     public override init() {}
     
     var hasEventListeners = false
-        func startObserving() {
-           hasEventListeners = true
-       }
-        func stopObserving() {
-           hasEventListeners = false
-       }
-       
-
-    public func initialise(params: [String : Any]) throws {
+    func startObserving() {
+        hasEventListeners = true
+    }
+    func stopObserving() {
+        hasEventListeners = false
+    }
+    
+    @objc(initialiseParams:)
+    public func initialise(params: [String : Any]) {
         
         let publishableKey = params["publishableKey"] as! String
         let appInfo = params["appInfo"] as! NSDictionary
@@ -80,7 +75,7 @@ public class StripeSdk : NSObject, SharedStripeRepository, STPBankSelectionViewC
         STPAPIClient.shared.appInfo = STPAppInfo(name: name, partnerId: partnerId, version: version, url: url)
         self.merchantIdentifier = merchantIdentifier
         
-        
+        print("inilize is completed..")
     }
     
     func configure3dSecure(_ params: NSDictionary) {
@@ -89,12 +84,11 @@ public class StripeSdk : NSObject, SharedStripeRepository, STPBankSelectionViewC
         threeDSCustomizationSettings.uiCustomization = uiCustomization
     }
     
-    
-    public func createPaymentMethod(params: [String : Any], options: [String : Any], onSuccess: @escaping ([String : Any]) -> Void, onError: @escaping (KotlinThrowable) -> Void) throws {
-        
+    @objc(createPaymentMethodParams:options:onSuccess:onError:)
+    public func createPaymentMethod(params: [String : Any], options: [String : Any], onSuccess: @escaping ([String : Any]) -> Void, onError: @escaping ([String : Any]) -> Void)  {
         let type = Mappers.mapToPaymentMethodType(type: params["paymentMethodType"] as? String)
         guard let paymentMethodType = type else {
-            onError(KotlinThrowable(message:  Errors.createError(ErrorType.Failed, "You must provide paymentMethodType").description))
+            Errors.handleError(ErrorType.Failed, "You must provide paymentMethodType", onError)
             return
         }
         
@@ -105,88 +99,82 @@ public class StripeSdk : NSObject, SharedStripeRepository, STPBankSelectionViewC
             cardFieldView: cardFieldView,
             cardFormView: cardFormView
         )
-        
         do {
             paymentMethodParams = try factory.createParams(paymentMethodType: paymentMethodType)
         } catch  {
-            onError(KotlinThrowable(message: Errors.createError(ErrorType.Failed, error.localizedDescription).description))
+            Errors.handleError(ErrorType.Failed, error.localizedDescription, onError)
             return
         }
         
         if let paymentMethodParams = paymentMethodParams {
             STPAPIClient.shared.createPaymentMethod(with: paymentMethodParams) { paymentMethod, error in
                 if let createError = error {
-                    onError(KotlinThrowable(message:  Errors.createError(ErrorType.Failed, createError.localizedDescription).description))
-                    
+                    Errors.handleError(ErrorType.Failed, createError.localizedDescription, onError)
                 } else {
                     onSuccess(Mappers.mapFromPaymentMethod(paymentMethod) as! [String : Any])
                 }
             }
         } else {
-            onError(KotlinThrowable(message:  Errors.createError(ErrorType.Unknown, "Unhandled error occured").description))
+            Errors.handleError(ErrorType.Unknown, "Unhandled error occured", onError)
         }
     }
     
-    
+    @objc(handleNextActionPaymentIntentClientSecret:returnURL:onSuccess:onError:)
     public func handleNextAction(
         paymentIntentClientSecret: String,
         returnURL: String?,
-        onSuccess: @escaping ([String : Any]) -> Void, onError: @escaping (KotlinThrowable) -> Void) throws {
-        let paymentHandler = STPPaymentHandler.shared()
+        onSuccess: @escaping ([String : Any]) -> Void,  onError: @escaping ([String : Any]) -> Void)  {
+            let paymentHandler = STPPaymentHandler.shared()
             paymentHandler.handleNextAction(forPayment: paymentIntentClientSecret, with: self, returnURL: returnURL) { status, paymentIntent, handleActionError in
-            switch status {
-            case .failed:
-                if let error = handleActionError {
-                    onError(KotlinThrowable(message:  Errors.createError(ErrorType.Failed, "Failed").description))
-                 
-                } else {
-                    onError(KotlinThrowable(message:  Errors.createError(ErrorType.Failed, "Failed: Unknown failure").description))
-                  
+                switch status {
+                case .failed:
+                    if let error = handleActionError {
+                        Errors.handleError(ErrorType.Failed, "Failed", onError)
+                    } else {
+                        Errors.handleError(ErrorType.Failed, "Failed: Unknown failure", onError)
+                    }
+                case .canceled:
+                    if let lastError = paymentIntent?.lastPaymentError {
+                        Errors.handleError(ErrorType.Failed, "Canceled", onError)
+                    } else {
+                        Errors.handleError(ErrorType.Failed, "Cancled: The payment has been canceled", onError)
+                    }
+                case .succeeded:
+                    if let paymentIntent = paymentIntent {
+                        let result = Mappers.createResult("paymentIntent", Mappers.mapFromPaymentIntent(paymentIntent: paymentIntent) as NSDictionary)
+                        onSuccess(result as! [String : Any])
+                    } else {
+                        Errors.handleError(ErrorType.Failed, "Success: Unknown success", onError)
+                    }
+                @unknown default:
+                    Errors.handleError(ErrorType.Failed, "Unknown: Cannot complete payment", onError)
                 }
-            case .canceled:
-                if let lastError = paymentIntent?.lastPaymentError {
-                    
-                    onError(KotlinThrowable(message:  Errors.createError(ErrorType.Failed, "Canceled").description))
-                } else {
-                    onError(KotlinThrowable(message:  Errors.createError(ErrorType.Failed, "Cancled: The payment has been canceled").description))
-                
-                }
-            case .succeeded:
-                if let paymentIntent = paymentIntent {
-                    let result = Mappers.createResult("paymentIntent", Mappers.mapFromPaymentIntent(paymentIntent: paymentIntent) as NSDictionary)
-                    onSuccess(result as! [String : Any])
-                } else {
-                    onError(KotlinThrowable(message:  Errors.createError(ErrorType.Failed, "Success: Unknown success").description))
-                
-                }
-            @unknown default:
-                onError(KotlinThrowable(message:  Errors.createError(ErrorType.Failed, "Unknown: Cannot complete payment").description))
             }
         }
-    }
     
+    @objc(handleNextActionForSetupSetupIntentClientSecret:returnURL:onSuccess:onError:)
     public func handleNextActionForSetup(
         setupIntentClientSecret: String,
         returnURL: String?,
         onSuccess: @escaping ([String: Any]) -> Void,
-        onError: @escaping (KotlinThrowable) -> Void
-    ) throws {
+        onError: @escaping ([String : Any]) -> Void
+    ) {
         let paymentHandler = STPPaymentHandler.shared()
         
         paymentHandler.handleNextAction(forSetupIntent: setupIntentClientSecret, with: self, returnURL: returnURL) { status, setupIntent, handleActionError in
             switch status {
             case .failed:
                 if let error = handleActionError {
-                    onError(KotlinThrowable(message: Errors.createError(ErrorType.Failed, "Failed: \(error.localizedDescription)").description))
+                    Errors.handleError(ErrorType.Failed, "Failed: \(error.localizedDescription)", onError)
                 } else {
-                    onError(KotlinThrowable(message: Errors.createError(ErrorType.Failed, "Failed: Unknown failure").description))
+                    Errors.handleError(ErrorType.Failed,  "Failed: Unknown failure", onError)
                 }
                 
             case .canceled:
                 if let lastError = setupIntent?.lastSetupError {
-                    onError(KotlinThrowable(message: Errors.createError(ErrorType.Canceled, "Canceled: \(lastError.description)").description))
+                    Errors.handleError(ErrorType.Canceled, "Canceled: \(lastError.description)", onError)
                 } else {
-                    onError(KotlinThrowable(message: Errors.createError(ErrorType.Canceled, "Canceled: The setup has been canceled").description))
+                    Errors.handleError(ErrorType.Canceled, "Canceled: The setup has been canceled", onError)
                 }
                 
             case .succeeded:
@@ -194,15 +182,15 @@ public class StripeSdk : NSObject, SharedStripeRepository, STPBankSelectionViewC
                     let result = Mappers.createResult("setupIntent", Mappers.mapFromSetupIntent(setupIntent: setupIntent) as NSDictionary)
                     onSuccess(result as! [String: Any])
                 } else {
-                    onError(KotlinThrowable(message: Errors.createError(ErrorType.Failed, "Success: Unknown success").description))
+                    Errors.handleError(ErrorType.Failed, "Success: Unknown success", onError)
                 }
                 
             @unknown default:
-                onError(KotlinThrowable(message: Errors.createError(ErrorType.Failed, "Unknown: Cannot complete setup").description))
+                Errors.handleError(ErrorType.Failed, "Unknown: Cannot complete setup", onError)
             }
         }
     }
-
+    
     
     
     
@@ -213,7 +201,7 @@ public class StripeSdk : NSObject, SharedStripeRepository, STPBankSelectionViewC
             .compactMap({ $0 })
             .first?.windows
             .filter({ $0.isKeyWindow }).first else {
-                return nil
+            return nil
         }
         var topController = keyWindow.rootViewController
         while let presentedController = topController?.presentedViewController {
@@ -221,63 +209,63 @@ public class StripeSdk : NSObject, SharedStripeRepository, STPBankSelectionViewC
         }
         return topController
     }
-
     
     
     
-    func confirmPayment(
+    @objc(confirmPaymentPaymentIntentClientSecret:params:options:onSuccess:onError:)
+    public func confirmPayment(
         paymentIntentClientSecret: String,
         params: [String: Any]?,
         options: [String: Any],
         onSuccess: @escaping ([String: Any]) -> Void,
-        onError: @escaping (KotlinThrowable) -> Void) throws {
+        onError: @escaping ([String : Any]) -> Void) {
             
             
             self.confirmPaymentClientSecret = paymentIntentClientSecret
-
-               // Extract the payment method data from params
-               let paymentMethodData = params?["paymentMethodData"] as? [String: Any]
-
-               // Check if payment method type is missing or invalid
-               let (missingPaymentMethodError, paymentMethodType) = getPaymentMethodType(params: params)
-               if let error = missingPaymentMethodError {
-                   onError(KotlinThrowable(message: Errors.createError(ErrorType.Failed, "Missing paymentMethodData").description))
-                   return
-               }
-
-               // Handle FPX payment method type specifically
-               if paymentMethodType == .FPX {
-                   let testOfflineBank = paymentMethodData?["testOfflineBank"] as? Bool
-                   if testOfflineBank == false || testOfflineBank == nil {
-                       payWithFPX(paymentIntentClientSecret: paymentIntentClientSecret)
-                       return
-                   }
-               }
-
-               // Create payment intent parameters
-               let (error, paymentIntentParams) = createPaymentIntentParams(
-                   paymentIntentClientSecret: paymentIntentClientSecret,
-                   paymentMethodType: paymentMethodType,
-                   paymentMethodData: paymentMethodData,
-                   options: options
-               )
-
-               // Handle errors during payment intent creation
-               if let error = error {
-                   onError(KotlinThrowable(message: Errors.createError(ErrorType.Failed, error.description).description))
-               } else {
-                   // Use the STPPaymentHandler to confirm the payment
-                   STPPaymentHandler.shared().confirmPayment(paymentIntentParams, with: self) { status, paymentIntent, error in
-                       self.onCompleteConfirmPayment(status: status, paymentIntent: paymentIntent, error: error)
-                       if let error = error {
-                           onError(KotlinThrowable(message: Errors.createError(ErrorType.Failed, error.localizedDescription).description))
-                       } else {
-                           onSuccess([:])
-                       }
-                   }
-               }
-
-    }
+            
+            // Extract the payment method data from params
+            let paymentMethodData = params?["paymentMethodData"] as? [String: Any]
+            
+            // Check if payment method type is missing or invalid
+            let (missingPaymentMethodError, paymentMethodType) = getPaymentMethodType(params: params)
+            if let error = missingPaymentMethodError {
+                Errors.handleError(ErrorType.Failed, "Missing paymentMethodData", onError)
+                return
+            }
+            
+            // Handle FPX payment method type specifically
+            if paymentMethodType == .FPX {
+                let testOfflineBank = paymentMethodData?["testOfflineBank"] as? Bool
+                if testOfflineBank == false || testOfflineBank == nil {
+                    payWithFPX(paymentIntentClientSecret: paymentIntentClientSecret)
+                    return
+                }
+            }
+            
+            // Create payment intent parameters
+            let (error, paymentIntentParams) = createPaymentIntentParams(
+                paymentIntentClientSecret: paymentIntentClientSecret,
+                paymentMethodType: paymentMethodType,
+                paymentMethodData: paymentMethodData,
+                options: options
+            )
+            
+            // Handle errors during payment intent creation
+            if let error = error {
+                Errors.handleError(ErrorType.Failed,  error.description, onError)
+            } else {
+                // Use the STPPaymentHandler to confirm the payment
+                STPPaymentHandler.shared().confirmPayment(paymentIntentParams, with: self) { status, paymentIntent, error in
+                    self.onCompleteConfirmPayment(status: status, paymentIntent: paymentIntent, error: error)
+                    if let error = error {
+                        Errors.handleError(ErrorType.Failed,  error.localizedDescription, onError)
+                    } else {
+                        onSuccess([:])
+                    }
+                }
+            }
+            
+        }
     
     func createPaymentIntentParams(
         paymentIntentClientSecret: String,
@@ -286,7 +274,7 @@ public class StripeSdk : NSObject, SharedStripeRepository, STPBankSelectionViewC
         options: [String: Any]
     ) -> ([String: Any]?, STPPaymentIntentParams) {
         var err: [String: Any]? = nil
-
+        
         let paymentIntentParams: STPPaymentIntentParams = {
             // If payment method data is not supplied, assume payment method was attached via collectBankAccount
             if paymentMethodType == .USBankAccount && paymentMethodData == nil {
@@ -295,13 +283,13 @@ public class StripeSdk : NSObject, SharedStripeRepository, STPBankSelectionViewC
                 guard let paymentMethodType = paymentMethodType else {
                     return STPPaymentIntentParams(clientSecret: paymentIntentClientSecret)
                 }
-
+                
                 // Create a factory to handle payment method creation
                 let factory = PaymentMethodFactory(paymentMethodData: paymentMethodData as NSDictionary?, options: options as NSDictionary, cardFieldView: cardFieldView, cardFormView: cardFormView)
                 
                 let paymentMethodId = paymentMethodData?["paymentMethodId"] as? String
                 let parameters = STPPaymentIntentParams(clientSecret: paymentIntentClientSecret)
-
+                
                 // If paymentMethodId exists, use it, otherwise create paymentMethodParams
                 if let paymentMethodId = paymentMethodId {
                     parameters.paymentMethodId = paymentMethodId
@@ -312,7 +300,7 @@ public class StripeSdk : NSObject, SharedStripeRepository, STPBankSelectionViewC
                         err = Errors.createError(ErrorType.Failed, error) as! [String : Any]
                     }
                 }
-
+                
                 // Attempt to create paymentMethodOptions and mandateData
                 do {
                     parameters.paymentMethodOptions = try factory.createOptions(paymentMethodType: paymentMethodType)
@@ -320,32 +308,29 @@ public class StripeSdk : NSObject, SharedStripeRepository, STPBankSelectionViewC
                 } catch {
                     err = Errors.createError(ErrorType.Failed, error) as! [String : Any]
                 }
-
+                
                 return parameters
             }
         }()
-
+        
         // Set up future usage and return URL if applicable
         if let setupFutureUsage = options["setupFutureUsage"] as? String {
             paymentIntentParams.setupFutureUsage = Mappers.mapToPaymentIntentFutureUsage(usage: setupFutureUsage)
         }
-
+        
         if let urlScheme = urlScheme {
             paymentIntentParams.returnURL = Mappers.mapToReturnURL(urlScheme: urlScheme)
         }
-
+        
         // Map shipping details from paymentMethodData
         if let shippingDetails = paymentMethodData?["shippingDetails"] as? [String: Any] {
             paymentIntentParams.shipping = Mappers.mapToShippingDetails(shippingDetails: shippingDetails as NSDictionary)
         }
-
+        
         return (err, paymentIntentParams)
     }
-
-
     
-    
-    
+    @objc(confirmSetupIntentWithSetupIntentClientSecret:params:options:onSuccess:onError:)
     public func confirmSetupIntent(setupIntentClientSecret: String,
                                    params: [String: Any],
                                    options: [String: Any],
@@ -442,12 +427,12 @@ public class StripeSdk : NSObject, SharedStripeRepository, STPBankSelectionViewC
             return (nil, nil)
         }
     }
-    
-    
+    //
+    //
     func payWithFPX(paymentIntentClientSecret: String) {
         let vc = STPBankSelectionViewController(bankMethod: .FPX)
         vc.delegate = self
-
+        
         DispatchQueue.main.async {
             vc.presentationController?.delegate = self
             
@@ -472,7 +457,7 @@ public class StripeSdk : NSObject, SharedStripeRepository, STPBankSelectionViewC
         bankViewController.dismiss(animated: true)
         paymentHandler.confirmPayment(paymentIntentParams, with: self, completion: onCompleteConfirmPayment)
     }
-
+    
     
     func onCompleteConfirmPayment(status: STPPaymentHandlerActionStatus, paymentIntent: STPPaymentIntent?, error: NSError?) {
         self.confirmPaymentClientSecret = nil
@@ -509,12 +494,13 @@ public class StripeSdk : NSObject, SharedStripeRepository, STPBankSelectionViewC
     }
     
     // payment sheet implimentation
-    
-    public func doInitPaymentSheet(params: [String : Any], onSuccess: @escaping ([String : Any]) -> Void, onError: @escaping (KotlinThrowable) -> Void) throws {
+    @objc(doInitPaymentSheetParams:onSuccess:onError:)
+    public func doInitPaymentSheet(params: [String : Any], onSuccess: @escaping ([String : Any]) -> Void, onError: @escaping ([String : Any]) -> Void)  {
+        
         
         let (error, configuration) = buildPaymentSheetConfiguration(params: params as! NSDictionary)
         guard let configuration = configuration else {
-            onError(Errors.createError(ErrorType.Canceled, error?.description) as! any Error as! KotlinThrowable)
+            Errors.handleError(ErrorType.Canceled,  error?.description ?? "Unknown error", onError)
             return
         }
         
@@ -522,36 +508,34 @@ public class StripeSdk : NSObject, SharedStripeRepository, STPBankSelectionViewC
     }
     
     
-
+    @objc(presentPaymentSheetOptions:onSuccess:onError:)
     public func presentPaymentSheet(
         options: [String: Any] = [:],
         onSuccess: @escaping ([String: Any]) -> Void,
-        onError: @escaping (KotlinThrowable) -> Void
-    ) throws {
+        onError:  @escaping ([String : Any]) -> Void
+    )  {
         var paymentSheetViewController: UIViewController?
-
+        
         // Timeout handling
         if let timeout = options["timeout"] as? Double {
             DispatchQueue.main.asyncAfter(deadline: .now() + timeout / 1000) {
                 if let paymentSheetViewController = paymentSheetViewController {
                     paymentSheetViewController.dismiss(animated: true)
-                    onError(Errors.createError(ErrorType.Timeout, "The payment has timed out.") as! any Error as! KotlinThrowable)
+                    onError(Errors.createError(ErrorType.Timeout, "The payment has timed out.") as! [String : Any])
                 }
             }
         }
-
+        
         DispatchQueue.main.async {
             // Get the top-most view controller
             paymentSheetViewController = self.topViewController()
-
+            
             // Ensure paymentSheetViewController is valid
             guard let presentingViewController = paymentSheetViewController else {
-        
-                onError(KotlinThrowable(message:  Errors.createError(ErrorType.Failed, "Failed to find a valid presenting view controller.").description))
-                
+                Errors.handleError(ErrorType.Failed, "Failed to find a valid presenting view controller.", onError)
                 return
             }
-
+            
             // Present the payment options or payment sheet
             if let paymentSheetFlowController = self.paymentSheetFlowController {
                 paymentSheetFlowController.presentPaymentOptions(from: findViewControllerPresenter(from: presentingViewController)) {
@@ -563,7 +547,7 @@ public class StripeSdk : NSObject, SharedStripeRepository, STPBankSelectionViewC
                         ]
                         onSuccess(Mappers.createResult("paymentOption", option) as! [String: Any])
                     } else {
-                        onError(Errors.createError(ErrorType.Canceled, "The payment option selection flow has been canceled.") as! any Error as! KotlinThrowable)
+                        Errors.handleError(ErrorType.Canceled, "The payment option selection flow has been canceled.", onError)
                     }
                 }
             } else if let paymentSheet = self.paymentSheet {
@@ -574,15 +558,13 @@ public class StripeSdk : NSObject, SharedStripeRepository, STPBankSelectionViewC
                         onSuccess([:])
                         self.paymentSheet = nil
                     case .canceled:
-                        onError(KotlinThrowable(message:  Errors.createError(ErrorType.Canceled, "The payment has been canceled.").description))
-                   
+                        Errors.handleError(ErrorType.Canceled,"The payment has been canceled.", onError)
                     case .failed(let error):
-                        onError(KotlinThrowable(message:  Errors.createError(ErrorType.Failed, error).description))
-                       
+                        Errors.handleError(ErrorType.Failed,"failed: \(error)", onError)
                     }
                 }
             } else {
-                onError(KotlinThrowable(message:  Errors.createError(ErrorType.Canceled,  "No payment sheet has been initialized yet. You must call `initPaymentSheet` before `presentPaymentSheet`.").description))
+                Errors.handleError(ErrorType.Canceled, "No payment sheet has been initialized yet. You must call `initPaymentSheet` before `presentPaymentSheet`.", onError)
             }
         }
     }
@@ -602,13 +584,13 @@ func findViewControllerPresenter(from uiViewController: UIViewController) -> UIV
     // This is a bit of a hack: We traverse the view hierarchy looking for the most reasonable VC to present from.
     // A VC hosted within a SwiftUI cell, for example, doesn't have a parent, so we need to find the UIWindow.
     var presentingViewController: UIViewController =
-        uiViewController.view.window?.rootViewController ?? uiViewController
-
+    uiViewController.view.window?.rootViewController ?? uiViewController
+    
     // Find the most-presented UIViewController
     while let presented = presentingViewController.presentedViewController {
         presentingViewController = presented
     }
-
+    
     return presentingViewController
 }
 
@@ -627,7 +609,7 @@ extension StripeSdk: STPAuthenticationContext {
             return topMostViewController ?? UIViewController()
         }
     }
-
+    
     private func getTopMostViewControllerFromWindow() -> UIViewController {
         // Find the key window in the connected scenes
         let keyWindow = UIApplication.shared.connectedScenes
@@ -644,12 +626,12 @@ extension StripeSdk: STPAuthenticationContext {
         while let presentedController = topController.presentedViewController {
             topController = presentedController
         }
-
+        
         // Ensure the top controller's view is in a window before returning it
         guard topController.view.window != nil else {
             return UIViewController() // Not in the window hierarchy, return a default
         }
-
+        
         return topController
     }
 }
